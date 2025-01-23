@@ -1,0 +1,227 @@
+Код страны	Название страны (английский)
+OM	Oman
+MV	Maldives
+BJ	Benin
+NZ	New Zealand
+MD	Moldova, Republic of
+AW	Aruba
+CN	China
+EE	Estonia
+HR	Croatia
+AE	United Arab Emirates
+SL	Sierra Leone
+FI	Finland
+BI	Burundi
+VG	Virgin Islands, British
+GM	Gambia
+ID	Indonesia
+YT	Mayotte
+TR	Turkey
+VI	Virgin Islands, U.S.
+AX	Åland Islands
+CO	Colombia
+MW	Malawi
+LA	Lao People's Democratic Republic
+FJ	Fiji
+ME	Montenegro
+KN	Saint Kitts and Nevis
+PR	Puerto Rico
+GN	Guinea
+IE	Ireland
+LR	Liberia
+NI	Nicaragua
+AF	Afghanistan
+AU	Australia
+US	United States
+CL	Chile
+EC	Ecuador
+ZW	Zimbabwe
+UA	Ukraine
+BY	Belarus
+IT	Italy
+ET	Ethiopia
+VE	Venezuela, Bolivarian Republic of
+NF	Norfolk Island
+MS	Montserrat
+QA	Qatar
+BG	Bulgaria
+TN	Tunisia
+RW	Rwanda
+MU	Mauritius
+MC	Monaco
+CM	Cameroon
+NG	Nigeria
+AD	Andorra
+SK	Slovakia
+BZ	Belize
+MT	Malta
+BH	Bahrain
+TO	Tonga
+GL	Greenland
+VU	Vanuatu
+KI	Kiribati
+IR	Iran, Islamic Republic of
+PM	Saint Pierre and Miquelon
+BW	Botswana
+SH	Saint Helena, Ascension and Tristan da Cunha
+MQ	Martinique
+KZ	Kazakhstan
+TL	Timor-Leste
+BE	Belgium
+RU	Russian Federation
+GI	Gibraltar
+VC	Saint Vincent and the Grenadines
+PL	Poland
+AR	Argentina
+SY	Syrian Arab Republic
+CI	Côte d'Ivoire
+MA	Morocco
+AT	Austria
+CK	Cook Islands
+RE	Réunion
+NE	Niger
+SI	Slovenia
+DO	Dominican Republic
+IS	Iceland
+BF	Burkina Faso
+ES	Spain
+TM	Turkmenistan
+SZ	Eswatini
+HN	Honduras
+JE	Jersey
+MR	Mauritania
+LK	Sri Lanka
+GY	Guyana
+TJ	Tajikistan
+RS	Serbia
+CY	Cyprus
+GG	Guernsey
+CG	Congo
+HK	Hong Kong
+MO	Macao
+DK	Denmark
+SG	Singapore
+DM	Dominica
+IQ	Iraq
+KH	Cambodia
+CZ	Czechia
+GH	Ghana
+NC	New Caledonia
+KY	Cayman Islands
+MP	Northern Mariana Islands
+BD	Bangladesh
+KG	Kyrgyzstan
+ZA	South Africa
+PK	Pakistan
+CH	Switzerland
+TH	Thailand
+BA	Bosnia and Herzegovina
+GE	Georgia
+LI	Liechtenstein
+FR	France
+MM	Myanmar
+IM	Isle of Man
+PH	Philippines
+SC	Seychelles
+BR	Brazil
+GF	French Guiana
+NA	Namibia
+SE	Sweden
+BT	Bhutan
+KW	Kuwait
+MN	Mongolia
+BB	Barbados
+NR	Nauru
+AO	Angola
+CF	Central African Republic
+SV	El Salvador
+TZ	Tanzania, United Republic of
+BS	Bahamas
+SD	Sudan
+DJ	Djibouti
+KE	Kenya
+IN	India
+MK	North Macedonia
+CU	Cuba
+RO	Romania
+PF	French Polynesia
+NO	Norway
+AL	Albania
+SA	Saudi Arabia
+VN	Viet Nam
+TW	Taiwan, Province of China
+GT	Guatemala
+PW	Palau
+GB	United Kingdom
+JO	Jordan
+ML	Mali
+PY	Paraguay
+CV	Cabo Verde
+TG	Togo
+GD	Grenada
+AM	Armenia
+PG	Papua New Guinea
+CD	Congo, Democratic Republic of the
+ST	Sao Tome and Principe
+DZ	Algeria
+SB	Solomon Islands
+GU	Guam
+IL	Israel
+NP	Nepal
+LY	Libya
+WS	Samoa
+JP	Japan
+CA	Canada
+BN	Brunei Darussalam
+DE	Germany
+GR	Greece
+LV	Latvia
+UY	Uruguay
+CR	Costa Rica
+TC	Turks and Caicos Islands
+JM	Jamaica
+MZ	Mozambique
+MH	Marshall Islands
+SR	Suriname
+FO	Faroe Islands
+ZM	Zambia
+PE	Peru
+BO	Bolivia, Plurinational State of
+TV	Tuvalu
+KR	Korea, Republic of
+TD	Chad
+UZ	Uzbekistan
+GA	Gabon
+GP	Guadeloupe
+LT	Lithuania
+YE	Yemen
+HT	Haiti
+LB	Lebanon
+MX	Mexico
+PS	Palestine, State of
+EG	Egypt
+LS	Lesotho
+PA	Panama
+AG	Antigua and Barbuda
+SN	Senegal
+NL	Netherlands
+LU	Luxembourg
+AI	Anguilla
+UG	Uganda
+MY	Malaysia
+LC	Saint Lucia
+BM	Bermuda
+TT	Trinidad and Tobago
+GQ	Equatorial Guinea
+PT	Portugal
+AZ	Azerbaijan
+HU	Hungary
+SO	Somalia
+MG	Madagascar
+
+
+Примечание:
+
+В таблице использованы официальные полные названия стран на английском языке, как они представлены в стандарте ISO 3166-1.
+Для некоторых территорий, таких как Гонконг и Макао, указаны их английские названия, как специальные административные районы Китая.
+Для некоторых кодов, например, NF (Norfolk Island), YT (Mayotte), GF (French Guiana), RE (Réunion), GP (Guadeloupe), PM (Saint Pierre and Miquelon), MQ (Martinique), AX (Åland Islands), GG (Guernsey), JE (Jersey), IM (Isle of Man), CK (Cook Islands), TC (Turks and Caicos Islands), VG (British Virgin Islands), VI (US Virgin Islands), AI (Anguilla), BM (Bermuda), PR (Puerto Rico), GU (Guam), MP (Northern Mariana Islands), PF (French Polynesia), FO (Faroe Islands), GP (Guadeloupe), MQ (Martinique), RE (Réunion), YT (Mayotte) указаны названия территорий или зависимых территорий, а не независимых государств.
