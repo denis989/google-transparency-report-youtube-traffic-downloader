@@ -122,5 +122,5 @@ MIT License
 
 ## Author
 
-Denis
+Denis Yagodin
 
