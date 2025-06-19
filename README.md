@@ -58,11 +58,21 @@ During the investigation, we found that the Google Transparency Report API provi
     *   Saves each country's monthly data into separate CSV files in the `youtube_traffic_data_monthly` directory within the project's root directory.
     *   Includes error handling, progress bar, and ETA estimation.
 *   **How to Run:**
+    The script now requires command-line arguments to specify country codes, start date, and end date.
     ```bash
-    python main.py
+    python main.py --country_codes "US,CA,MX" --start_date "YYYY-MM-DD" --end_date "YYYY-MM-DD"
     ```
+    *   `--country_codes`: A comma-separated string of ISO 3166-1 alpha-2 country codes (e.g., "US,CA,GB").
+    *   `--start_date`: The start date for the data download period in YYYY-MM-DD format.
+    *   `--end_date`: The end date for the data download period in YYYY-MM-DD format.
     *   Make sure you have the required Python libraries installed (see "Installation" section).
     *   The script will create `youtube_traffic_data_monthly` and `error_responses_monthly` directories in the same directory where you run the script.
+
+    **Example:**
+    ```bash
+    python main.py --country_codes "FR,DE,IT" --start_date "2022-01-01" --end_date "2022-12-31"
+    ```
+    This command will download data for France, Germany, and Italy from January 1, 2022, to December 31, 2022.
 
 ### `check_timestamps.py` - CSV Timestamp Consistency Checker
 
@@ -106,7 +116,11 @@ During the investigation, we found that the Google Transparency Report API provi
 
 ## Usage
 
-1.  **Download Data:** Run `main.py` to download YouTube traffic data for all countries into separate CSV files.
+1.  **Download Data:** Run `main.py` with the required command-line arguments to download YouTube traffic data.
+    ```bash
+    python main.py --country_codes "US,CA" --start_date "2023-01-01" --end_date "2023-03-31"
+    ```
+    Remember to replace the example values with your desired country codes and date range.
 2.  **Check Timestamps:** Run `check_timestamps.py` to verify the consistency of timestamps across the downloaded CSV files.
 3.  **Merge Data:** Run `merge_data.py` to merge all country CSV files into a single CSV file for combined analysis.
 

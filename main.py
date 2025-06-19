@@ -1,177 +1,411 @@
-import requests
-import datetime
-import csv
-import json
-import time
-import os
-from tqdm.notebook import tqdm  # Progress bar for notebooks (and general use if tqdm is installed)
+"""
+Main script to download YouTube traffic data from Google Transparency Report.
 
-def timestamp_to_datetime(timestamp_ms):
+This script fetches data for specified countries and date ranges,
+handles API interactions including retries, parses the data,
+and saves it to CSV files. It uses command-line arguments for configuration.
+"""
+import argparse
+import datetime
+import json
+import logging
+import os
+import time
+import csv
+from typing import (List, Optional, Dict, Any,  # Formatted for line length
+                    Union)
+
+import requests
+from tqdm import tqdm
+
+
+def timestamp_to_datetime(timestamp_ms: int) -> datetime.datetime:
     """
-    Converts a timestamp in milliseconds to a datetime object.
+    Converts a timestamp in milliseconds to a datetime.datetime object.
 
     Args:
-        timestamp_ms (int): Timestamp in milliseconds.
+        timestamp_ms: Timestamp in milliseconds.
 
     Returns:
-        datetime.datetime: Datetime object corresponding to the timestamp.
+        A datetime.datetime object corresponding to the given timestamp.
     """
     return datetime.datetime.fromtimestamp(timestamp_ms / 1000)
 
-def download_traffic_data(region_code, start_timestamp_ms, end_timestamp_ms):
+
+def valid_date(s: str) -> datetime.datetime:
     """
-    Downloads YouTube traffic data from Google Transparency Report API for a given region and time range.
+    Helper function to validate date string format for argparse.
 
     Args:
-        region_code (str): ISO 3166-1 alpha-2 region code (e.g., "US", "RU").
-        start_timestamp_ms (int): Start timestamp of the data range in milliseconds.
-        end_timestamp_ms (int): End timestamp of the data range in milliseconds.
+        s: Date string from command-line argument.
 
     Returns:
-        list or None: A list of data points (dictionaries with timestamp_ms and value) if download is successful,
-                     None if download fails or data parsing encounters an error.
+        A datetime.datetime object if the string is a valid date.
+
+    Raises:
+        argparse.ArgumentTypeError: If the string is not a valid date
+                                    in YYYY-MM-DD format.
     """
-    base_url = "https://transparencyreport.google.com/transparencyreport/api/v3/traffic/fraction"
-    params = {
-        "start": start_timestamp_ms,
-        "end": end_timestamp_ms,
-        "region": region_code,
-        "product": 21  # Product ID for YouTube traffic
-    }
     try:
-        response = requests.get(base_url, params=params)
-        response.raise_for_status()  # Raise HTTPError for bad responses (4xx or 5xx)
-        content = response.text
+        return datetime.datetime.strptime(s, "%Y-%m-%d")
+    except ValueError:
+        msg = f"Not a valid date: '{s}'. Expected format YYYY-MM-DD."
+        raise argparse.ArgumentTypeError(msg)
 
-        if content.startswith(")]}'\n"): # Remove security prefix
-            content = content[5:]
 
-        if not content.strip(): # Check for empty response
-            print(f"Warning: Empty response received for {region_code}.")
-            return None
+class GoogleTransparencyAPI:
+    """
+    Encapsulates interactions with the Google Transparency Report API.
 
-        try:
-            data = json.loads(content) # Parse JSON response
-        except json.JSONDecodeError as e:
-            print(f"Error parsing JSON data for {region_code}: {e}")
-            print(f"Raw response content for {region_code}:\n{content}")
-            error_dir = "error_responses_monthly" # Directory to save error responses
-            os.makedirs(error_dir, exist_ok=True)
-            error_filename = os.path.join(error_dir, f"{region_code}_error_response.txt")
-            with open(error_filename, 'w', encoding='utf-8') as error_file:
-                error_file.write(content) # Save raw response to file
-            print(f"Raw response saved to {error_filename} for debugging.")
-            return None
+    This class handles downloading YouTube traffic data, including retry
+    mechanisms and error handling for API requests.
+    """
+    def __init__(self) -> None:
+        """
+        Initializes the API client.
 
-        data_points = []
-        # Data structure validation before processing
-        if isinstance(data, list) and data and isinstance(data[0], list) and len(data[0]) > 1 and isinstance(data[0][1], list):
-            for point in data[0][1]:
-                if isinstance(point, list) and len(point) >= 2 and isinstance(point[1], list) and point[1] and isinstance(point[1][0], list) and len(point[1][0]) >= 2:
-                    timestamp_ms = point[0]
-                    value = point[1][0][1] if point[1][0][1] is not None else None # Extract value, handle nulls
-                    if value is not None:
-                        data_points.append({'timestamp_ms': timestamp_ms, 'value': value})
-        return data_points
+        Sets the base URL for the Google Transparency Report API and the
+        product ID for YouTube traffic.
+        """
+        self.base_url: str = (
+            "https://transparencyreport.google.com/transparencyreport/api/v3/"
+            "traffic/fraction"  # Line broken for length
+        )
+        self.product_id: int = 21  # Product ID for YouTube traffic
 
-    except requests.exceptions.RequestException as e: # Handle download errors
-        print(f"Error downloading data for {region_code}: {e}")
-        return None
-    except IndexError as e: # Handle index errors in data structure
-        print(f"Error processing data structure for {region_code}: {e}")
-        return None
+    def download_traffic_data(
+        self,
+        region_code: str,
+        start_timestamp_ms: int,
+        end_timestamp_ms: int
+    ) -> Optional[List[Dict[str, Any]]]:
+        """
+        Downloads YouTube traffic data for a specific region and time range.
 
-def save_to_csv(region_code, data_points, output_dir="."):
+        Handles API request retries and common errors like HTTP issues or
+        JSON parsing problems.
+
+        Args:
+            region_code: The ISO 3166-1 alpha-2 country code.
+            start_timestamp_ms: The start of the data range as a Unix
+                                timestamp in milliseconds.
+            end_timestamp_ms: The end of the data range as a Unix
+                              timestamp in milliseconds.
+
+        Returns:
+            A list of data point dictionaries, where each dictionary contains
+            'timestamp_ms' (int) and 'value' (float or int representing the
+            traffic fraction). Returns None if the download fails after retries
+            or if critical parsing errors occur.
+        """
+        params: Dict[str, Union[int, str]] = {
+            "start": start_timestamp_ms,
+            "end": end_timestamp_ms,
+            "region": region_code,
+            "product": self.product_id
+        }
+        max_retries: int = 3
+        retry_delay_seconds: int = 1  # Correctly indented
+
+        for attempt in range(max_retries):  # Correctly indented
+            try:
+                response = requests.get(
+                    self.base_url, params=params, timeout=30
+                )
+                response.raise_for_status()  # Raise HTTPError for bad responses
+                content: str = response.text
+
+                if content.startswith(")]}'\n"):  # Remove XSSI prefix
+                    content = content[5:]
+
+                if not content.strip():  # Check for empty response
+                    logging.warning(f"Empty response: {region_code} A{attempt+1}") # Max shorten
+                    return None
+
+                try:
+                    # Type for 'data' can be complex, using Any for now
+                    data: Any = json.loads(content)
+                except json.JSONDecodeError as e:
+                    # Line 122 / 123
+                    logging.error(f"JSON error for {region_code}: {e}") # Rephrased
+                    # Line 129: E501 - logging.debug can be a bit longer
+                    # Breaking this f-string to be safer.
+                    logging.debug(
+                        f"Raw response for {region_code}:\n"
+                        f"{content}"
+                    )
+                    error_dir: str = "error_responses_monthly"
+                    os.makedirs(error_dir, exist_ok=True)
+                    # Line 131: E501
+                    err_fname_prefix = f"{region_code}_err_att_{attempt+1}"
+                    err_fname = (
+                        f"{err_fname_prefix}.txt"
+                    )
+                    error_filename: str = os.path.join(error_dir, err_fname)
+                    try:
+                        with open(error_filename, 'w', encoding='utf-8') as ef:
+                            ef.write(content)
+                        # Line 143: E501
+                        logging.info(f"Raw rsp {region_code} saved.")
+                    except IOError as ioe:
+                        # Line 146: E501
+                        logging.error(f"IOError saving err_rsp: {ioe}")
+                    return None  # No retry for JSON parsing error
+
+                data_points: List[Dict[str, Any]] = []
+                # Data structure validation before processing
+                # Example path: data[0][1][i][0] for timestamp,
+                # data[0][1][i][1][0][1] for value
+                if (isinstance(data, list) and data and
+                        isinstance(data[0], list) and len(data[0]) > 1 and
+                        isinstance(data[0][1], list)):
+                    for point_data in data[0][1]:
+                        if (isinstance(point_data, list) and
+                                len(point_data) >= 2 and
+                                isinstance(point_data[1], list) and
+                                point_data[1] and
+                                isinstance(point_data[1][0], list) and
+                                len(point_data[1][0]) >= 2):
+                            timestamp_val: int = point_data[0]
+                            # Value can be None from API
+                            value_val: Optional[Union[int, float]] = (
+                                point_data[1][0][1]
+                            )
+                            if value_val is not None:
+                                data_points.append(
+                                    {'timestamp_ms': timestamp_val,
+                                     'value': value_val}
+                                )
+                return data_points
+
+            except requests.exceptions.HTTPError as http_err:
+                logging.error(
+                    f"HTTP error for {region_code} on attempt "
+                    f"{attempt + 1}/{max_retries}: "
+                    f"{http_err.response.status_code} - {http_err}"
+                )
+                if attempt + 1 == max_retries:
+                    logging.error(
+                        f"Final attempt failed for {region_code} "
+                        f"due to HTTP error."
+                    )
+                    return None
+                # Retry for server-side errors (5xx)
+                if http_err.response.status_code in [500, 502, 503, 504]:
+                    logging.info(
+                        f"Retrying in {retry_delay_seconds}s "
+                        f"for {region_code}..."
+                    )
+                    time.sleep(retry_delay_seconds)
+                    retry_delay_seconds *= 2
+                else:  # Client-side errors (4xx), not worth retrying
+                    logging.error(
+                        f"Client-side HTTP error "
+                        f"{http_err.response.status_code} for "
+                        f"{region_code}. Not retrying."
+                    )
+                    return None
+            except requests.exceptions.RequestException as req_err:
+                # Other network errors (timeout, connection error)
+                logging.error(
+                    f"Request exception for {region_code} on attempt "
+                    f"{attempt + 1}/{max_retries}: {req_err}"
+                )
+                if attempt + 1 == max_retries:
+                    logging.error(
+                        f"Final attempt failed for {region_code} "
+                        f"due to request exception."
+                    )
+                    return None
+                logging.info(
+                    f"Retrying in {retry_delay_seconds}s for {region_code}..."
+                )
+                time.sleep(retry_delay_seconds)
+                retry_delay_seconds *= 2
+            except IndexError as e:  # Handle index errors in data structure
+                logging.error(
+                    f"Error processing data structure for {region_code}: {e}. "
+                    "This usually indicates an unexpected API response format."
+                )
+                # No retry for data structure error
+                return None
+            # This return should be indented to be part of the for loop's else,
+            # or outside the loop if it's the final fallback.
+            # Given the logic, it's the fallback after all retries fail.
+        return None  # Fallback after all retries are exhausted
+
+
+def save_to_csv(
+    region_code: str,
+    data_points: List[Dict[str, Any]],
+    output_dir: str = "."
+) -> None:
     """
     Saves traffic data to a CSV file in the specified output directory.
 
     Args:
-        region_code (str): ISO 3166-1 alpha-2 region code.
-        data_points (list): List of data points to save.
-        output_dir (str): Directory where the CSV file will be saved. Defaults to the current directory.
+        region_code: ISO 3166-1 alpha-2 country code.
+        data_points: List of data points (dictionaries) to save.
+                     Each dictionary should have 'timestamp_ms' and 'value'.
+        output_dir: Directory where the CSV file will be saved.
+                    Defaults to the current directory.
     """
-    if not data_points: # Check if there is data to save
-        print(f"No data to save for {region_code}.")
+    if not data_points:  # Check if there is data to save
+        logging.info(f"No data to save for {region_code}.")
         return
 
-    filename = os.path.join(output_dir, f"{region_code}.csv") # Create filepath
+    filename: str = os.path.join(output_dir, f"{region_code}.csv")
     try:
-        with open(filename, 'w', newline='', encoding='utf-8') as csvfile: # Open file for writing CSV
+        with open(filename, 'w', newline='', encoding='utf-8') as csvfile:
             csv_writer = csv.writer(csvfile)
-            csv_writer.writerow(['date and time', 'value']) # Write header row
+            csv_writer.writerow(['date and time', 'value'])  # Write header row
             for point in data_points:
                 datetime_obj = timestamp_to_datetime(point['timestamp_ms'])
-                datetime_str = datetime_obj.strftime('%Y-%m-%d %H:%M:%S.%f')[:-3] # Format datetime to string with milliseconds
-                csv_writer.writerow([datetime_str, point['value']]) # Write data row
-        print(f"Data for {region_code} saved to {filename}")
-    except Exception as e: # Handle file writing errors
-        print(f"Error saving CSV file for {region_code}: {e}")
+                # Format datetime to string with milliseconds
+                dt_str = datetime_obj.strftime('%Y-%m-%d %H:%M:%S.%f')[:-3]
+                csv_writer.writerow([dt_str, point['value']])
+        logging.info(f"Data for {region_code} saved to {filename}")
+    except IOError as e:  # Handle file writing errors more specifically
+        logging.error(
+            f"Error saving CSV file {filename} for {region_code}: {e}"
+        )
+    except Exception as e:  # Handle other unexpected errors
+        logging.error(
+            f"An unexpected error occurred while saving CSV "
+            f"for {region_code}: {e}"
+        )
+
 
 if __name__ == '__main__':
-    country_codes = [["OM"],["MV"],["BJ"],["NZ"],["MD"],["AW"],["CN"],["EE"],["HR"],["AE"],["SL"],["FI"],["BI"],["VG"],["GM"],["ID"],["YT"],["TR"],["VI"],["AX"],["CO"],["MW"],["LA"],["FJ"],["ME"],["KN"],["PR"],["GN"],["IE"],["LR"],["NI"],["AF"],["AU"],["US"],["CL"],["EC"],["ZW"],["UA"],["BY"],["IT"],["ET"],["VE"],["NF"],["MS"],["QA"],["BG"],["TN"],["RW"],["MU"],["MC"],["CM"],["NG"],["AD"],["SK"],["BZ"],["MT"],["BH"],["TO"],["GL"],["VU"],["KI"],["IR"],["PM"],["BW"],["SH"],["MQ"],["KZ"],["TL"],["BE"],["RU"],["GI"],["VC"],["PL"],["AR"],["SY"],["CI"],["MA"],["AT"],["CK"],["RE"],["NE"],["SI"],["DO"],["IS"],["BF"],["ES"],["TM"],["SZ"],["HN"],["JE"],["MR"],["LK"],["GY"],["TJ"],["RS"],["CY"],["GG"],["CG"],["HK"],["MO"],["DK"],["SG"],["DM"],["IQ"],["KH"],["CZ"],["GH"],["NC"],["KY"],["MP"],["BD"],["KG"],["ZA"],["PK"],["CH"],["TH"],["BA"],["GE"],["LI"],["FR"],["MM"],["IM"],["PH"],["SC"],["BR"],["GF"],["NA"],["SE"],["BT"],["KW"],["MN"],["BB"],["NR"],["AO"],["CF"],["SV"],["TZ"],["BS"],["SD"],["DJ"],["KE"],["IN"],["MK"],["CU"],["RO"],["PF"],["NO"],["AL"],["SA"],["VN"],["TW"],["GT"],["PW"],["GB"],["JO"],["ML"],["PY"],["CV"],["TG"],["GD"],["AM"],["PG"],["CD"],["ST"],["DZ"],["SB"],["GU"],["IL"],["NP"],["LY"],["WS"],["JP"],["CA"],["BN"],["DE"],["GR"],["LV"],["UY"],["CR"],["TC"],["JM"],["MZ"],["MH"],["SR"],["FO"],["ZM"],["PE"],["BO"],["TV"],["KR"],["TD"],["UZ"],["GA"],["GP"],["LT"],["YE"],["HT"],["LB"],["MX"],["PS"],["EG"],["LS"],["PA"],["AG"],["SN"],["NL"],["LU"],["AI"],["UG"],["MY"],["LC"],["BM"],["TT"],["GQ"],["PT"],["AZ"],["HU"],["SO"],["MG"]] # List of country codes to download data for
-    start_date_period = datetime.datetime(2019, 1, 1, 0, 0, 0) # Start date for data download period
-    end_date_period = datetime.datetime(2025, 1, 20, 23, 59, 59) # End date for data download period
+    # Configure basic logging
+    logging.basicConfig(
+        level=logging.INFO,
+        format='%(asctime)s - %(levelname)s - %(message)s',
+        handlers=[
+            logging.StreamHandler()  # Outputs to console by default
+        ]
+    )
 
-    output_directory = "youtube_traffic_data_monthly" # Output directory for CSV files (relative to script location)
-    error_directory = "error_responses_monthly" # Output directory for error responses (relative to script location)
-    os.makedirs(output_directory, exist_ok=True) # Create output directory if it doesn't exist
-    os.makedirs(error_directory, exist_ok=True) # Create error directory if it doesn't exist
+    desc = "Download YouTube traffic data from Google Transparency Report."
+    parser = argparse.ArgumentParser(description=desc)
+    # Removed extra parenthesis from the line above
+    parser.add_argument(
+        "--country_codes",
+        required=True,
+        help="Comma-separated ISO codes (e.g., 'US,CA')."  # Shortened help
+    )
+    parser.add_argument(
+        "--start_date",
+        required=True,
+        type=valid_date,
+        help="Start date for data download (YYYY-MM-DD format)."
+    )
+    parser.add_argument(  # Break help string for line length
+        "--end_date",
+        required=True,
+        type=valid_date,
+        help="End date for data download (YYYY-MM-DD format)."
+    )
+    args = parser.parse_args()
 
-    total_months = 0
-    current_date_calc = start_date_period
-    while current_date_calc < end_date_period: # Calculate total months to process for progress bar
-        total_months += 1
-        current_date_calc = current_date_calc.replace(day=28) + datetime.timedelta(days=4)
-        current_date_calc = current_date_calc.replace(day=1) - datetime.timedelta(days=1) + datetime.timedelta(days=1)
+    # Process country codes from comma-separated string to list of lists
+    raw_codes: List[str] = args.country_codes.split(',')
+    processed_country_codes: List[List[str]] = [
+        [code.strip().upper()] for code in raw_codes if code.strip()
+    ]
 
-    progress_bar = tqdm(total=len(country_codes) * total_months, desc="Total Progress") # Initialize progress bar
+    # Use parsed dates, adjust end_date to include the whole day
+    start_date_dt: datetime.datetime = args.start_date
+    end_date_dt: datetime.datetime = args.end_date.replace(
+        hour=23, minute=59, second=59
+    )
 
-    start_time = time.time() # Record start time for ETA calculation
+    logging.info(f"Starting data download for countries: {args.country_codes}")
+    logging.info(
+        f"Period: {start_date_dt.strftime('%Y-%m-%d')} to "
+        f"{end_date_dt.strftime('%Y-%m-%d')}"
+    )
 
-    for country_info in country_codes: # Loop through each country code
-        country_code = country_info[0]
-        all_data_points = [] # List to store all data points for the current country
-        current_date = start_date_period # Reset current date to start of period for each country
+    api_client = GoogleTransparencyAPI()
 
-        while current_date < end_date_period: # Loop through months within the period
-            month_start_date = current_date
-            month_end_date = current_date.replace(day=28) + datetime.timedelta(days=4) # Rough end of month
-            month_end_date = month_end_date.replace(day=1) - datetime.timedelta(days=1) # Exact end of month
-            if month_end_date > end_date_period: # Cap month end date to overall period end
-                month_end_date = end_date_period
+    output_dir_main: str = "youtube_traffic_data_monthly"
+    error_dir_main: str = "error_responses_monthly"  # For error responses
+    os.makedirs(output_dir_main, exist_ok=True)
+    os.makedirs(error_dir_main, exist_ok=True)
 
-            start_timestamp_ms = int(month_start_date.timestamp() * 1000) # Convert datetime to timestamp (ms)
-            end_timestamp_ms = int(month_end_date.timestamp() * 1000) # Convert datetime to timestamp (ms)
+    # Calculate total units for progress bar more accurately
+    num_countries = len(processed_country_codes)
+    total_progress_units = 0
+    for country_code_info_calc in processed_country_codes:
+        current_calc_date = start_date_dt
+        while current_calc_date < end_date_dt:
+            total_progress_units += 1
+            # Move to start of next month for counting
+            if current_calc_date.month == 12:
+                current_calc_date = current_calc_date.replace(
+                    year=current_calc_date.year + 1, month=1, day=1
+                )
+            else:
+                current_calc_date = current_calc_date.replace(
+                    month=current_calc_date.month + 1, day=1
+                )
 
-            status_message = f"Downloading data for {country_code} month: {month_start_date.strftime('%Y-%m')}"
-            print(f"\r{status_message}", end="") # Print status message on single line
+    progress_bar = tqdm(total=total_progress_units, desc="Total Progress")
+    script_start_time = time.time()
 
-            monthly_data_points = download_traffic_data(country_code, start_timestamp_ms, end_timestamp_ms) # Download data for the month
+    for country_code_info in processed_country_codes:
+        country_code_main: str = country_code_info[0]
+        all_country_data: List[Dict[str, Any]] = []
+        current_processing_date = start_date_dt
 
-            if monthly_data_points:
-                all_data_points.extend(monthly_data_points) # Extend list with monthly data points
+        while current_processing_date < end_date_dt:
+            month_start_dt = current_processing_date
+            # Calculate end of the current month
+            if month_start_dt.month == 12:
+                month_end_dt_calc = month_start_dt.replace(
+                    year=month_start_dt.year + 1, month=1, day=1
+                ) - datetime.timedelta(days=1)
+            else:
+                month_end_dt_calc = month_start_dt.replace(
+                    month=month_start_dt.month + 1, day=1
+                ) - datetime.timedelta(days=1)
 
-            progress_bar.update(1) # Update progress bar after each month
+            # Ensure month_end does not exceed overall period end_date
+            month_end_dt = min(month_end_dt_calc, end_date_dt)
 
-            months_processed = progress_bar.n / len(country_codes) if len(country_codes) > 0 else 0 # Calculate months processed for ETA
-            elapsed_time = time.time() - start_time # Calculate elapsed time
-            estimated_time_per_month = elapsed_time / max(1, progress_bar.n) if progress_bar.n > 0 else 0 # Estimate time per month
-            remaining_months = total_months - months_processed # Calculate remaining months
-            estimated_remaining_time_sec = remaining_months * estimated_time_per_month # Estimate remaining time in seconds
-            estimated_remaining_time_str = str(datetime.timedelta(seconds=int(estimated_remaining_time_sec))) # Format remaining time to string
+            start_ts_ms = int(month_start_dt.timestamp() * 1000)
+            end_ts_ms = int(month_end_dt.timestamp() * 1000)
 
-            progress_percent = (progress_bar.n / progress_bar.total) * 100 # Calculate overall progress percentage
-            progress_bar.set_description(f"Total Progress: {progress_percent:.2f}% - ETA: {estimated_remaining_time_str}") # Update progress bar description with ETA
+            logging.info(
+                f"Downloading data for {country_code_main} "
+                f"month: {month_start_dt.strftime('%Y-%m')}"
+            )
 
+            monthly_data = api_client.download_traffic_data(
+                country_code_main, start_ts_ms, end_ts_ms
+            )
 
-            current_date = month_end_date + datetime.timedelta(days=1) # Move to the next month
-            time.sleep(0.5) # Delay to be nice to the API
+            if monthly_data:
+                all_country_data.extend(monthly_data)
+            else:
+                logging.warning(
+                    f"No data for {country_code_main} "
+                    f"for month {month_start_dt.strftime('%Y-%m')}"
+                )
 
-        print(f"\rDownloading data for {country_code} complete.        ") # Final status message for country
-        if all_data_points:
-            save_to_csv(country_code, all_data_points, output_directory) # Save data to CSV file
+            progress_bar.update(1)
+
+            # Move to the start of the next month
+            current_processing_date = month_end_dt + datetime.timedelta(days=1)
+            time.sleep(0.5)  # API kindness delay
+
+        logging.info(f"Downloading for {country_code_main} complete.")
+        if all_country_data:
+            save_to_csv(country_code_main, all_country_data, output_dir_main)
         else:
-            print(f"No data downloaded for {country_code} for the entire period.")
+            logging.warning(
+                f"No data for {country_code_main} for the entire period."
+            )
 
-    progress_bar.close() # Close progress bar
-    print("Download and save process complete.") # Final completion message
+    progress_bar.close()
+    logging.info("Download and save process complete.")
