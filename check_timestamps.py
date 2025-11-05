@@ -1,112 +1,242 @@
-import csv
-import os
-import datetime
-import argparse  # For command-line arguments
+"""
+Timestamp Consistency Checker for YouTube Traffic Data CSV Files.
 
-def get_timestamps_from_csv(filepath):
+This script validates that all CSV files in a directory have consistent timestamps.
+"""
+
+import argparse
+import csv
+import logging
+import os
+from typing import Optional, Set, List
+from pathlib import Path
+
+from utils import parse_datetime_string, setup_logging
+
+
+logger = logging.getLogger(__name__)
+
+
+def get_timestamps_from_csv(filepath: str) -> Optional[Set]:
     """
     Extracts timestamps from the 'date and time' column of a CSV file.
+
+    Args:
+        filepath: Path to the CSV file.
+
+    Returns:
+        Set of datetime objects if successful, None if errors occur.
     """
     timestamps = set()
+
     try:
         with open(filepath, 'r', encoding='utf-8') as csvfile:
             csv_reader = csv.reader(csvfile)
             header = next(csv_reader, None)
+
             if header is None:
-                print(f"Warning: CSV file '{filepath}' is empty.")
+                logger.warning(f"CSV file '{filepath}' is empty")
                 return None
+
             if 'date and time' not in header:
-                print(f"Warning: 'date and time' column not found in '{filepath}'. Header: {header}")
+                logger.warning(f"'date and time' column not found in '{filepath}'. Header: {header}")
                 return None
 
-            datetime_format = '%Y-%m-%d %H:%M:%S.%f' # Format with milliseconds
-            datetime_format_no_ms = '%Y-%m-%d %H:%M:%S' # Format without milliseconds
+            for row_num, row in enumerate(csv_reader, start=2):
+                if not row:
+                    continue
 
-            for row in csv_reader:
-                if row:
-                    datetime_str = row[0]
-                    try:
-                        datetime_obj = datetime.datetime.strptime(datetime_str, datetime_format)
-                        timestamps.add(datetime_obj)
-                    except ValueError:
-                        try:
-                            datetime_obj = datetime.datetime.strptime(datetime_str, datetime_format_no_ms)
-                            timestamps.add(datetime_obj)
-                        except ValueError:
-                            print(f"Error: Could not parse datetime '{datetime_str}' in '{filepath}'. Row: {row}")
-                            return None
+                datetime_str = row[0]
+                datetime_obj = parse_datetime_string(datetime_str)
+
+                if datetime_obj is None:
+                    logger.error(f"Could not parse datetime '{datetime_str}' in '{filepath}' at row {row_num}")
+                    return None
+
+                timestamps.add(datetime_obj)
 
     except Exception as e:
-        print(f"Error reading CSV file '{filepath}': {e}")
+        logger.error(f"Error reading CSV file '{filepath}': {e}")
         return None
+
     return timestamps
 
-if __name__ == '__main__':
-    parser = argparse.ArgumentParser(description="Check timestamp consistency across CSV files in a directory.")
-    parser.add_argument("input_dir", help="Path to the directory containing CSV files.")
-    args = parser.parse_args()
 
-    input_directory = args.input_dir
+def compare_timestamps(
+    reference_timestamps: Set,
+    current_timestamps: Set,
+    reference_filename: str,
+    current_filename: str
+) -> bool:
+    """
+    Compares two sets of timestamps and logs any differences.
 
+    Args:
+        reference_timestamps: Reference set of timestamps.
+        current_timestamps: Current set of timestamps to compare.
+        reference_filename: Name of the reference file.
+        current_filename: Name of the current file.
+
+    Returns:
+        True if timestamps match, False otherwise.
+    """
+    if current_timestamps == reference_timestamps:
+        logger.info(f"Timestamps in '{current_filename}' match the reference")
+        return True
+
+    missing_timestamps = reference_timestamps - current_timestamps
+    extra_timestamps = current_timestamps - reference_timestamps
+
+    if missing_timestamps:
+        logger.error(
+            f"'{current_filename}' is missing {len(missing_timestamps)} timestamps "
+            f"compared to '{reference_filename}'"
+        )
+        for ts in sorted(list(missing_timestamps))[:5]:
+            logger.error(f"  Missing: {ts}")
+        if len(missing_timestamps) > 5:
+            logger.error(f"  ... and {len(missing_timestamps) - 5} more")
+
+    if extra_timestamps:
+        logger.error(
+            f"'{current_filename}' has {len(extra_timestamps)} extra timestamps "
+            f"compared to '{reference_filename}'"
+        )
+        for ts in sorted(list(extra_timestamps))[:5]:
+            logger.error(f"  Extra: {ts}")
+        if len(extra_timestamps) > 5:
+            logger.error(f"  ... and {len(extra_timestamps) - 5} more")
+
+    # Check for different timestamps at same positions (edge case)
+    if not missing_timestamps and not extra_timestamps:
+        reference_list = sorted(list(reference_timestamps))
+        current_list = sorted(list(current_timestamps))
+        different_count = 0
+
+        for i in range(min(len(reference_list), len(current_list))):
+            if reference_list[i] != current_list[i]:
+                different_count += 1
+
+        if different_count > 0:
+            logger.error(
+                f"'{current_filename}' has {different_count} different timestamps "
+                f"at the same positions compared to '{reference_filename}'"
+            )
+
+    return False
+
+
+def check_timestamps(input_directory: str) -> bool:
+    """
+    Checks timestamp consistency across all CSV files in a directory.
+
+    Args:
+        input_directory: Path to the directory containing CSV files.
+
+    Returns:
+        True if all files have consistent timestamps, False otherwise.
+    """
     if not os.path.exists(input_directory):
-        print(f"Error: Directory '{input_directory}' not found.")
-        exit(1) # Exit with error code
+        logger.error(f"Directory '{input_directory}' not found")
+        return False
 
-    csv_files = [f for f in os.listdir(input_directory) if f.endswith('.csv')]
+    csv_files = sorted([f for f in os.listdir(input_directory) if f.endswith('.csv')])
 
     if not csv_files:
-        print(f"Error: No CSV files found in '{input_directory}'.")
-        exit(1) # Exit with error code
+        logger.error(f"No CSV files found in '{input_directory}'")
+        return False
+
+    logger.info(f"Found {len(csv_files)} CSV files to check")
 
     reference_timestamps = None
-    first_filename = ""
+    reference_filename = ""
+    all_match = True
+    skipped_count = 0
 
-    print("Checking timestamps in CSV files...")
-
-    for i, filename in enumerate(csv_files):
+    for filename in csv_files:
         filepath = os.path.join(input_directory, filename)
         current_timestamps = get_timestamps_from_csv(filepath)
 
         if current_timestamps is None:
-            print(f"Skipping comparison for '{filename}' due to errors.")
+            logger.warning(f"Skipping comparison for '{filename}' due to errors")
+            skipped_count += 1
+            all_match = False
             continue
 
         if reference_timestamps is None:
             reference_timestamps = current_timestamps
-            first_filename = filename
-            print(f"Using timestamps from '{first_filename}' as reference.")
+            reference_filename = filename
+            logger.info(f"Using timestamps from '{reference_filename}' as reference ({len(reference_timestamps)} timestamps)")
         else:
-            if current_timestamps == reference_timestamps:
-                print(f"Timestamps in '{filename}' match the reference.")
-            else:
-                missing_timestamps = reference_timestamps - current_timestamps
-                extra_timestamps = current_timestamps - reference_timestamps
-                if missing_timestamps:
-                    print(f"Error: '{filename}' is missing {len(missing_timestamps)} timestamps compared to '{first_filename}'.")
-                    for ts in sorted(list(missing_timestamps))[:5]:
-                        print(f"  Missing: {ts}")
-                    if len(missing_timestamps) > 5:
-                        print("  ...and more")
-                if extra_timestamps:
-                    print(f"Error: '{filename}' has {len(extra_timestamps)} extra timestamps compared to '{first_filename}'.")
-                    for ts in sorted(list(extra_timestamps))[:5]:
-                        print(f"  Extra: {ts}")
-                    if len(extra_timestamps) > 5:
-                        print("  ...and more")
-                if not missing_timestamps and not extra_timestamps:
-                    reference_list = sorted(list(reference_timestamps))
-                    current_list = sorted(list(current_timestamps))
-                    different_timestamps_count = 0
-                    for j in range(min(len(reference_list), len(current_list))):
-                        if reference_list[j] != current_list[j]:
-                            different_timestamps_count += 1
-                    if different_timestamps_count > 0:
-                        print(f"Error: '{filename}' has {different_timestamps_count} different timestamps at the same positions compared to '{first_filename}'.")
-                        for j in range(min(len(reference_list), len(current_list))):
-                            if reference_list[j] != current_list[j]:
-                                print(f"  Different at position {j+1}: Reference: {reference_list[j]}, Current: {current_list[j]}")
-                                if different_timestamps_count >= 5 and j >= 4:
-                                    print("  ...and more")
-                                    break
+            if not compare_timestamps(reference_timestamps, current_timestamps, reference_filename, filename):
+                all_match = False
 
-    print("\nTimestamp check complete.")
+    # Summary
+    logger.info("=" * 60)
+    logger.info("Timestamp Check Summary:")
+    logger.info(f"  Total files: {len(csv_files)}")
+    logger.info(f"  Files checked: {len(csv_files) - skipped_count}")
+    logger.info(f"  Files skipped: {skipped_count}")
+    logger.info(f"  All timestamps consistent: {all_match}")
+    logger.info("=" * 60)
+
+    return all_match
+
+
+def parse_arguments() -> argparse.Namespace:
+    """
+    Parses command-line arguments.
+
+    Returns:
+        Parsed arguments namespace.
+    """
+    parser = argparse.ArgumentParser(
+        description="Check timestamp consistency across CSV files in a directory",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter
+    )
+
+    parser.add_argument(
+        'input_dir',
+        help='Path to the directory containing CSV files'
+    )
+
+    parser.add_argument(
+        '--log-level',
+        type=str,
+        default='INFO',
+        choices=['DEBUG', 'INFO', 'WARNING', 'ERROR'],
+        help='Logging level'
+    )
+
+    parser.add_argument(
+        '--log-file',
+        type=str,
+        default=None,
+        help='Path to log file (logs to console if not specified)'
+    )
+
+    return parser.parse_args()
+
+
+def main() -> None:
+    """Main execution function."""
+    args = parse_arguments()
+
+    # Setup logging
+    log_level = getattr(logging, args.log_level)
+    setup_logging(level=log_level, log_file=args.log_file)
+
+    logger.info("Starting timestamp consistency check")
+
+    # Check timestamps
+    success = check_timestamps(args.input_dir)
+
+    if success:
+        logger.info("Timestamp check completed successfully - all files are consistent")
+    else:
+        logger.error("Timestamp check completed with errors - inconsistencies found")
+        exit(1)
+
+
+if __name__ == '__main__':
+    main()
