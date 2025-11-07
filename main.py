@@ -25,6 +25,7 @@ from utils import (
     extract_data_points,
     setup_logging,
     get_month_boundaries,
+    get_day_boundaries,
     validate_country_code,
     API_BASE_URL,
     API_SECURITY_PREFIX,
@@ -98,9 +99,17 @@ def download_traffic_data(
         "product": YOUTUBE_PRODUCT_ID
     }
 
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "Accept": "application/json, text/plain, */*",
+        "Accept-Language": "en-US,en;q=0.9",
+        "Referer": "https://transparencyreport.google.com/",
+        "Origin": "https://transparencyreport.google.com"
+    }
+
     for attempt in range(max_retries):
         try:
-            response = requests.get(API_BASE_URL, params=params, timeout=30)
+            response = requests.get(API_BASE_URL, params=params, headers=headers, timeout=30)
             response.raise_for_status()
             content = response.text
 
@@ -310,6 +319,14 @@ def parse_arguments() -> argparse.Namespace:
         help='Logging level'
     )
 
+    parser.add_argument(
+        '--granularity',
+        type=str,
+        default='monthly',
+        choices=['daily', 'monthly'],
+        help='Download granularity: daily (30-min data points) or monthly (2-hour data points)'
+    )
+
     return parser.parse_args()
 
 
@@ -345,11 +362,18 @@ def main() -> None:
         logger.error("No valid country codes found")
         return
 
-    # Calculate month boundaries
-    month_boundaries = get_month_boundaries(start_date, end_date)
-    total_requests = len(country_codes) * len(month_boundaries)
+    # Calculate time boundaries based on granularity
+    if args.granularity == 'daily':
+        time_boundaries = get_day_boundaries(start_date, end_date)
+        period_type = "days"
+    else:
+        time_boundaries = get_month_boundaries(start_date, end_date)
+        period_type = "months"
 
-    logger.info(f"Processing {len(country_codes)} countries across {len(month_boundaries)} months")
+    total_requests = len(country_codes) * len(time_boundaries)
+
+    logger.info(f"Processing {len(country_codes)} countries across {len(time_boundaries)} {period_type}")
+    logger.info(f"Granularity: {args.granularity}")
     logger.info(f"Total API requests: {total_requests}")
 
     # Initialize statistics
@@ -362,21 +386,25 @@ def main() -> None:
             all_data_points = []
             country_failed = False
 
-            for month_start, month_end in month_boundaries:
-                start_ts = datetime_to_timestamp(month_start)
-                end_ts = datetime_to_timestamp(month_end)
+            for period_start, period_end in time_boundaries:
+                start_ts = datetime_to_timestamp(period_start)
+                end_ts = datetime_to_timestamp(period_end)
 
-                pbar.set_description(f"Downloading {country_code} ({month_start.strftime('%Y-%m')})")
+                if args.granularity == 'daily':
+                    desc = f"Downloading {country_code} ({period_start.strftime('%Y-%m-%d')})"
+                else:
+                    desc = f"Downloading {country_code} ({period_start.strftime('%Y-%m')})"
+                pbar.set_description(desc)
 
-                monthly_data = download_traffic_data(
+                period_data = download_traffic_data(
                     country_code,
                     start_ts,
                     end_ts,
                     max_retries=args.max_retries
                 )
 
-                if monthly_data:
-                    all_data_points.extend(monthly_data)
+                if period_data:
+                    all_data_points.extend(period_data)
                 else:
                     country_failed = True
 

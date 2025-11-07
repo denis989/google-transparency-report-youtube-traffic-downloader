@@ -192,6 +192,38 @@ def get_month_boundaries(start_date: datetime.datetime, end_date: datetime.datet
     return boundaries
 
 
+def get_day_boundaries(start_date: datetime.datetime, end_date: datetime.datetime) -> list[tuple[datetime.datetime, datetime.datetime]]:
+    """
+    Generates a list of day boundary pairs between start and end dates.
+
+    This function creates daily intervals to achieve finer granularity (30-minute)
+    data points from the Google Transparency Report API.
+
+    Args:
+        start_date: Starting date for the period.
+        end_date: Ending date for the period.
+
+    Returns:
+        List of tuples containing (day_start, day_end) datetime pairs.
+    """
+    boundaries = []
+    current_date = start_date
+
+    while current_date < end_date:
+        day_start = current_date
+        day_end = current_date.replace(hour=23, minute=59, second=59)
+
+        # Cap at overall end date
+        if day_end > end_date:
+            day_end = end_date
+
+        boundaries.append((day_start, day_end))
+        current_date = day_start + datetime.timedelta(days=1)
+        current_date = current_date.replace(hour=0, minute=0, second=0, microsecond=0)
+
+    return boundaries
+
+
 def validate_country_code(code: str) -> bool:
     """
     Validates if a country code is in the correct format (2 uppercase letters).
